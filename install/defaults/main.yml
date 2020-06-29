@@ -1,0 +1,90 @@
+---
+application_purpose: Z0SH
+appcode: ABCD
+mq_user: mqm
+mq_group: mqm
+base_path: /var/mqm
+install_path: /opt/mqm
+software_location: /opt/Installation
+nexus_repo_id: WebSphere-Application-Server
+nexus_group_id: IBM.MQ
+nexus_server_artifact_id: Server
+nexus_fixpack_artifact_id: FP
+nexus_package_format: tgz
+mq_server_version: "9.0.5.0"
+connecting_user: wasuser
+mq_channel_main: "MQC_{{ appcode }}{{ environment_layer }}_MAIN"
+mq_channel_dir: "MQC_{{ appcode }}{{ environment_layer }}_DIR"
+mq_channel_bma: "MQC_{{ appcode }}{{ environment_layer }}_BMA"
+mq_outbound_topic_string: "ESITOPIC"
+mq_outbound_topic_name: "MQT_{{ appcode }}{{ environment_layer }}_{{ mq_outbound_topic_string }}"
+mq_listener_port: 1420
+mq_listener_name: LISTENER1
+disable_authentication: true
+#mq_fixpack_version: 8.0.0.5
+mq_software_location: "{{ software_location }}/{{ nexus_group_id | split('.')[-1:] }}"
+qmgr_name: "MQ{{ application_purpose }}{{ env_single_char_id }}{{ env_number }}"
+log_path: "{{ base_path }}/log/{{ qmgr_name }}"
+nexus_host: sonatype-nexus-host
+nexus_port: 8081
+mq_download_url: "http://{{ nexus_host }}:{{ nexus_port }}/nexus/service/local/repositories/{{ nexus_repo_id }}/content/{{ nexus_group_id | replace('.','/') }}/{{ nexus_server_artifact_id }}/{{ mq_server_version }}/{{ nexus_server_artifact_id }}-{{ mq_server_version }}.tgz"
+mq_install_unpacked_dir: "{% if mq_server_version.split('.')[0] == '8' %}server{% else %}MQServer{% endif %}"
+
+rpm_version: "{{ mq_server_version.split('.')[0] }}.{{ mq_server_version.split('.')[1] }}.{{ mq_server_version.split('.')[2] }}-{{ mq_server_version.split('.')[3] }}"
+mq_rpms:
+ - "MQSeriesRuntime-{{ rpm_version }}.x86_64.rpm"
+ - "MQSeriesServer-{{ rpm_version }}.x86_64.rpm"
+
+usergroups:
+  - mqm
+
+system_users:
+  - { name: 'mqm', group: 'mqm' }
+
+volume_groups:
+  - { name: "datavg",                  pvs: '/dev/sdb' }
+  - { name: '{{ qmgr_name }}_qmgr_vg', pvs: '/dev/sdc' }
+  - { name: '{{ qmgr_name }}_log_vg',  pvs: '/dev/sdd' }
+
+logical_volumes:
+  - { name: "mqlv", 
+      size: "1G", 
+      vg: "datavg", 
+      mount: '/opt/mqm', 
+      fstype: 'xfs', 
+      owner: "{{ mq_user }}", 
+      group: "{{ mq_group }}", 
+      perms: '0755'
+    }
+  - { name: "softwarelv", 
+      size: "4G", 
+      vg: "datavg", 
+      mount: "{{ software_location }}", 
+      fstype: 'xfs', 
+      owner: "{{ mq_user }}", 
+      group: "{{ mq_group }}", 
+      perms: '0755'
+    }
+  - { name: "{{ qmgr_name }}lv", 
+      size: "100%VG", 
+      vg: "{{ qmgr_name }}_qmgr_vg", 
+      mount: "{{ base_path }}/qmgrs/{{ qmgr_name }}", 
+      fstype: 'xfs', 
+      owner: "{{ mq_user }}", 
+      group: "{{ mq_group }}", 
+      perms: '0755'
+    }
+  - { name: "{{ qmgr_name }}loglv", 
+      size: "100%VG", 
+      vg: "{{ qmgr_name }}_log_vg", 
+      mount: "{{ base_path }}/log/{{ qmgr_name }}", 
+      fstype: 'xfs', 
+      owner: "{{ mq_user }}", 
+      group: "{{ mq_group }}", 
+      perms: '0755'
+    }
+
+
+#packages_to_install:
+#  - cyrus-sasl-lib.x86_64
+#

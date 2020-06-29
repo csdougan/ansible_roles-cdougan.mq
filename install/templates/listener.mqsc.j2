@@ -1,0 +1,6 @@
+DEFINE LISTENER (TCP.{{ mq_listener_name }}) +
+	TRPTYPE(TCP) +
+	CONTROL(QMGR) +
+	PORT({{ mq_listener_port }}) +
+	DESCR('Listener') +
+	REPLACE

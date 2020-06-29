@@ -1,0 +1,149 @@
+---
+ - name: Set up OS (filesystems, users, etc)
+   import_role:
+     name: cdougan-os_setup
+
+ - name: Get stats for mq installation unpacked dir
+   stat:
+     path: "{{ software_location }}/{{ mq_install_unpacked_dir }}"
+   register: unpacked_dir_status
+
+ - name: Obtain MQ Installation package 
+   unarchive:
+     src: "{{ mq_download_url }}"
+     dest: "{{ software_location }}"
+     remote_src: yes
+   when: unpacked_dir_status.stat.exists == False
+
+ - name: Accept licence
+   shell: "{{ software_location }}/{{ mq_install_unpacked_dir }}/mqlicense.sh -accept"
+
+ - debug:
+    msg: "{{ rpm_version }}"
+ - name: Install RPMS
+   yum:
+     name: "{{ software_location }}/{{ mq_install_unpacked_dir }}/{{ item }}"
+     state: installed
+   with_items: "{{ mq_rpms }}"
+
+ - name: Create Config file dir
+   file:
+     path: "{{ software_location }}/MQ_Config_Files"
+     state: directory
+   become_user: "{{ mq_user }}"
+
+ - name: Create MQ Config files
+   template:
+     src: "../templates/{{ item }}.j2"
+     dest: "{{ software_location }}/MQ_Config_Files/{{ item }}"
+   with_items:
+     - channel.def
+     - chlauth
+     - listener.mqsc
+     - mq_security
+     - qmgr_security
+     - start_listener.mqsc
+     - topic
+
+ - sysctl:
+     name: "{{ item.name }}"
+     value: "{{ item.value }}"
+     state: present
+     reload: yes
+     sysctl_set: yes
+   with_items:
+    - { name: 'fs.file-max',  value: '524288' }
+
+ - pam_limits:
+    domain: "{{ item.domain }}"
+    limit_type: "{{ item.limit_type }}"
+    limit_item: "{{ item.limit_item }}"
+    value: "{{ item.value }}"
+   with_items:
+    - { domain: "{{ mq_user }}", limit_type: '-', limit_item: 'nofile', value: '10240' }
+    - { domain: "{{ mq_user }}", limit_type: '-', limit_item: 'nproc', value: '4096' }
+
+ - name: create home dir for mq user
+   file:
+     path: "/home/{{ mq_user }}"
+     state: directory
+     owner: "{{ mq_user }}"
+     group: "{{ mq_group }}"
+ 
+ - name: ensure .bashrc exists for mq_user
+   file:
+     path: "/home/{{ mq_user }}/.bashrc"
+     state: touch
+     owner: "{{ mq_user }}"
+     group: "{{ mq_group }}"
+
+ - name: Update Bashrc
+   lineinfile:
+     path: "/home/{{ mq_user }}/.bashrc"
+     line: "export PATH=$PATH:{{ install_path }}/bin"
+     state: present
+
+ - name: disable authentication via bashrc
+   lineinfile:
+     path: "/home/{{ mq_user }}/.bashrc"
+     line: "export MQSNOAUT=NO"
+     state: "{% if disable_authentication == true -%}present{% else -%}absent{%- endif %}"
+
+ - name: Check if queue manager already exists
+   stat:
+     path: "{{ base_path }}/qmgrs/{{ qmgr_name }}/qm.ini"
+   register: qmgr_status
+
+ - block:
+   - name: Create Queue Manager
+     shell: "{{ install_path }}/bin/crtmqm {{ qmgr_name }}"
+     become_user: "{{ mq_user }}"
+
+   - name: Set LogFile Pages for QM
+     lineinfile:
+       path: "{{ base_path }}/qmgrs/{{ qmgr_name }}/qm.ini"
+       regexp: 'LogFilePages.*'
+       line: 'LogFilePages=65535'
+       state: present
+
+   - name: Start Queue Manager
+     shell: "{{ install_path }}/bin/strmqm {{ qmgr_name }}"
+     become_user: "{{ mq_user }}"
+
+   - name: Set Queue Manager permissions
+     shell: "{{ install_path }}/bin/setmqaut -m {{ qmgr_name }} -t qmgr -g {{ mq_group }} +all"
+     become_user: "{{ mq_user }}"
+
+   - name: Create listener
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/listener.mqsc"
+     become_user: "{{ mq_user }}"
+
+   - name: Start listener
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/start_listener.mqsc"
+     become_user: "{{ mq_user }}"
+
+   - name: Create channel definitions
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/channel.def"
+     become_user: "{{ mq_user }}"
+
+   - name: Set Permissions on main channel
+     shell: "{{ install_path }}/bin/setmqaut -m {{ qmgr_name }} -t channel -g {{ mq_group }} -n {{ mq_channel_main }} +all"
+     become_user: "{{ mq_user }}"
+
+   - name: Set Permissions on direct channel
+     shell: "{{ install_path }}/bin/setmqaut -m {{ qmgr_name }} -t channel -g {{ mq_group }} -n {{ mq_channel_dir }} +all"
+     become_user: "{{ mq_user }}"
+
+   - name: Create MQ TOPIC
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/topic"
+     become_user: "{{ mq_user }}"
+
+   - name: Update QMGR Security
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/qmgr_security"
+     become_user: "{{ mq_user }}"
+
+   - name: Update Channel Auth Security
+     shell: "{{ install_path }}/bin/runmqsc {{ qmgr_name }} < {{ software_location }}/MQ_Config_Files/mq_security"
+     become_user: "{{ mq_user }}"
+ 
+   when: qmgr_status.stat.exists != True

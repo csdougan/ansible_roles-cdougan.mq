@@ -1,0 +1,19 @@
+---
+  - name: Start MQ Server
+    service:
+      name: ctrl_mq_server
+      state: started
+
+  - name: Check MQ Server has started
+    shell: "ps -ef | grep [r]unmqlsr"
+    register: mq_started
+    ignore_errors: yes
+
+  - name: Debug MQ process check
+    debug:
+      var: mq_started 
+
+  - name: Start MQ manually
+    shell: /etc/init.d/ctrl_mq_server start
+    when: mq_started.rc != 0
+

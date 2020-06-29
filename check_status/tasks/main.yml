@@ -1,0 +1,39 @@
+---
+  - name: Check MQ Server has started
+    shell: "ps -ef | grep [r]unmqlsr"
+    register: mq_process
+    ignore_errors: yes
+    failed_when: false
+
+  - name: Check MQ Port is running
+    wait_for:
+      host: 127.0.0.1
+      port: 1420
+      state: started
+      delay: 0
+      timeout: 3
+    register: mq_port_status
+    failed_when: false
+
+  - name: Output results of process check
+    debug:
+      var: mq_process
+
+  - name: Output results of port check
+    debug:
+      var: mq_port_status
+
+  - name: Print message if port check fails
+    debug:
+      msg: "Port check for MQ failed"
+    when: mq_port_status.state|default('unknown') != 'started'
+
+  - name: Print message if process check fails
+    debug:
+      msg: "MQ Process runmqlsr not found"
+    when: mq_process.rc != 0
+
+
+
+
+
